@@ -1,0 +1,8 @@
+mcp
+httpx
+fastmcp
+
+[dev]
+pytest
+black
+isort
