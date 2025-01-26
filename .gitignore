@@ -1,4 +1,2 @@
-brave_search_mcp.egg-info/dependency_links.txt
-brave_search_mcp.egg-info/PKG-INFO
-brave_search_mcp.egg-info/SOURCES.txt
-brave_search_mcp.egg-info/top_level.txt
+*.egg-info/
+.venv
