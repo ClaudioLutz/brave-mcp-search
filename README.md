@@ -30,7 +30,7 @@ This project implements a Model Context Protocol (MCP) server for Brave Search, 
 
 ## Usage
 
-1. Configure your MCP settings file (e.g., `cline_mcp_settings.json`) to include the Brave Search MCP server:
+1. Configure your MCP settings file (e.g., `claude_desktop_config.json`) to include the Brave Search MCP server:
 
    ```json
    {
