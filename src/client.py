@@ -28,6 +28,14 @@ class BraveSearchClient:
         self.console = console or Console()
         self.logger = logging.getLogger("brave-search-client")
 
+    def _is_complex_query(self, query: str) -> bool:
+        """Determine if a query is complex based on its characteristics"""
+        indicators = [
+            " and ", " or ", " why ", " how ", " what ", " explain ",
+            "compare", "difference", "analysis", "describe"
+        ]
+        return any(indicator in query.lower() for indicator in indicators) or len(query.split()) > 5
+
     async def _execute_search(
         self,
         session: ClientSession,
@@ -35,6 +43,11 @@ class BraveSearchClient:
         params: Dict[str, Any]
     ) -> str:
         try:
+            # Adjust count based on query complexity
+            if "query" in params:
+                is_complex = self._is_complex_query(params["query"])
+                params["count"] = 20 if is_complex else 10
+
             result = await session.call_tool(tool, params)
             if result.is_error:
                 raise Exception(result.content[0].text)
@@ -61,21 +74,15 @@ class BraveSearchClient:
                         if query.lower() == "quit":
                             break
 
-                        search_type = self.console.input(
-                            "Search type (web/local) [web]: "
-                        ) or "web"
-
-                        count = self.console.input(
-                            f"Results count [{'5' if search_type == 'local' else '10'}]: "
-                        )
-                        count = int(count) if count else (
-                            5 if search_type == "local" else 10
-                        )
-
-                        tool = "brave_local_search" if search_type == "local" \
-                              else "brave_web_search"
+                        # Default to web search as it's used for answer formulation
+                        search_type = "web"
                         
-                        with self.console.status("Searching..."):
+                        is_complex = self._is_complex_query(query)
+                        count = 20 if is_complex else 10
+                        
+                        tool = "brave_web_search"
+                        
+                        with self.console.status(f"Searching with {'complex' if is_complex else 'standard'} query..."):
                             result = await self._execute_search(
                                 session,
                                 tool,

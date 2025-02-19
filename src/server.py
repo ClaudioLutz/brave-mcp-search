@@ -62,36 +62,93 @@ class BraveSearchServer:
             )
         return self._client
 
+    async def _get_web_results(self, query: str, min_results: int) -> List[Dict]:
+        """Fetch web results with pagination until minimum count is reached"""
+        all_results = []
+        offset = 0
+        client = self.get_client()
+
+        while len(all_results) < min_results and offset < 100:
+            self.rate_limit.check()
+            response = await client.get(
+                f"{self.base_url}/web/search",
+                params={
+                    "q": query,
+                    "count": 20,
+                    "offset": offset
+                }
+            )
+            response.raise_for_status()
+            data = response.json()
+            results = data.get("web", {}).get("results", [])
+            if not results:
+                break
+                
+            all_results.extend(results)
+            offset += 20
+            await asyncio.sleep(0.1)  # Slight delay to respect rate limits
+            
+        return all_results
+
+    def _format_web_results(self, data: Dict, min_results: int = 10) -> str:
+        """Format web search results with enhanced information"""
+        results = []
+        web_results = data.get("web", {}).get("results", [])
+        
+        for result in web_results[:max(min_results, len(web_results))]:
+            formatted_result = [
+                f"Title: {result.get('title', 'N/A')}",
+                f"Description: {result.get('description', 'N/A')}",
+                f"URL: {result.get('url', 'N/A')}"
+            ]
+            
+            # Add additional metadata if available
+            if "meta_url" in result:
+                formatted_result.append(f"Source: {result['meta_url']}")
+            if "age" in result:
+                formatted_result.append(f"Age: {result['age']}")
+            if "language" in result:
+                formatted_result.append(f"Language: {result['language']}")
+                
+            results.append("\n".join(formatted_result))
+            
+        return "\n\n".join(results)
+
     def _setup_tools(self):
         @self.mcp.tool()
         async def brave_web_search(
             query: str,
-            count: Optional[int] = 20,  
-            offset: Optional[int] = 0
+            count: Optional[int] = 20
         ) -> str:
-            """Execute web search using Brave Search API
+            """Execute web search using Brave Search API with improved results
             
             Args:
                 query: Search terms
-                count: Results (1-20)
-                 offset: Page offset (0-9)
+                count: Desired number of results (10-20)
             """
-            self.rate_limit.check()
-            params = {
-                "q": query,
-                "count": 20,  # Always request maximum of 20 results
-                "offset": min(offset, 9)
-            }
+            min_results = max(10, min(count, 20))  # Ensure between 10 and 20
             
-            client = self.get_client()
-            response = await client.get(
-                f"{self.base_url}/web/search",
-                params=params
-            )
-            response.raise_for_status()
-            # Return up to count results, but ensure at least 10
-            data = response.json()
-            return self._format_web_results(data, min_results=10)
+            all_results = await self._get_web_results(query, min_results)
+            
+            if not all_results:
+                return "No results found for the query."
+                
+            formatted_results = []
+            for result in all_results[:min_results]:
+                formatted_result = [
+                    f"Title: {result.get('title', 'N/A')}",
+                    f"Description: {result.get('description', 'N/A')}",
+                    f"URL: {result.get('url', 'N/A')}"
+                ]
+                
+                # Include additional context if available
+                if result.get('extra_snippets'):
+                    formatted_result.append("Additional Context:")
+                    formatted_result.extend([f"- {snippet}" for snippet in result['extra_snippets'][:2]])
+                    
+                formatted_results.append("\n".join(formatted_result))
+            
+            return "\n\n".join(formatted_results)
 
         @self.mcp.tool() 
         async def brave_local_search(
@@ -179,32 +236,6 @@ class BraveSearchServer:
             for result in data.get("locations", {}).get("results", [])
             if "id" in result
         ]
-
-    async def _format_web_results(self, data: Dict, min_results: int = 10) -> str:
-        """Format web search results ensuring minimum number of results"""
-        results = []
-        web_results = data.get("web", {}).get("results", [])
-        
-        # If we have fewer than min_results, adjust pagination to get more
-        if len(web_results) < min_results:
-            offset = 0
-            while len(web_results) < min_results and offset < 40:
-                offset += 20
-                additional_response = await self.get_client().get(
-                    f"{self.base_url}/web/search",
-                    params={"q": data.get("query", ""), "count": 20, "offset": offset}
-                )
-                additional_data = additional_response.json()
-                web_results.extend(additional_data.get("web", {}).get("results", []))
-        
-        # Format results
-        for result in web_results[:max(min_results, len(web_results))]:
-            results.append(
-                f"Title: {result.get('title', 'N/A')}\n"
-                f"Description: {result.get('description', 'N/A')}\n"
-                f"URL: {result.get('url', 'N/A')}"
-            )
-        return "\n\n".join(results)
 
     def _format_local_results(
         self,
