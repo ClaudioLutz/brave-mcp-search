@@ -6,6 +6,8 @@ from typing import Optional, Dict, List, Any, Tuple
 from dataclasses import dataclass
 from enum import Enum
 import os
+import sys
+import io
 
 api_key = os.getenv("BRAVE_API_KEY")
 if not api_key:
@@ -40,6 +42,10 @@ class RateLimit:
 
 class BraveSearchServer:
     def __init__(self, api_key: str):
+        # Configure stdout for UTF-8
+        if sys.platform == 'win32':
+            sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
+            
         self.mcp = FastMCP(
             "brave-search",
             dependencies=["httpx", "asyncio"]
@@ -64,31 +70,36 @@ class BraveSearchServer:
 
     async def _get_web_results(self, query: str, min_results: int) -> List[Dict]:
         """Fetch web results with pagination until minimum count is reached"""
-        all_results = []
-        offset = 0
         client = self.get_client()
-
-        while len(all_results) < min_results and offset < 100:
-            self.rate_limit.check()
+        self.rate_limit.check()
+        
+        try:
+            # Make a single request with the maximum allowed count
             response = await client.get(
                 f"{self.base_url}/web/search",
                 params={
                     "q": query,
-                    "count": 20,
-                    "offset": offset
+                    "count": min_results
                 }
             )
             response.raise_for_status()
             data = response.json()
             results = data.get("web", {}).get("results", [])
-            if not results:
-                break
-                
-            all_results.extend(results)
-            offset += 20
-            await asyncio.sleep(0.1)  # Slight delay to respect rate limits
-            
-        return all_results
+            return results
+        except httpx.HTTPStatusError as e:
+            if e.response.status_code == 422:
+                # If we get a 422, try with a smaller count
+                response = await client.get(
+                    f"{self.base_url}/web/search",
+                    params={
+                        "q": query,
+                        "count": 10  # Fall back to smaller count
+                    }
+                )
+                response.raise_for_status()
+                data = response.json()
+                return data.get("web", {}).get("results", [])
+            raise  # Re-raise other HTTP errors
 
     def _format_web_results(self, data: Dict, min_results: int = 10) -> str:
         """Format web search results with enhanced information"""
@@ -96,9 +107,13 @@ class BraveSearchServer:
         web_results = data.get("web", {}).get("results", [])
         
         for result in web_results[:max(min_results, len(web_results))]:
+            # Strip or replace any potential Unicode characters
+            title = result.get('title', 'N/A').encode('ascii', 'replace').decode()
+            desc = result.get('description', 'N/A').encode('ascii', 'replace').decode()
+            
             formatted_result = [
-                f"Title: {result.get('title', 'N/A')}",
-                f"Description: {result.get('description', 'N/A')}",
+                f"Title: {title}",
+                f"Description: {desc}",
                 f"URL: {result.get('url', 'N/A')}"
             ]
             
@@ -283,7 +298,9 @@ class BraveSearchServer:
         """Format rating information"""
         if not rating:
             return "N/A"
-        return f"{rating.get('ratingValue', 'N/A')} ({rating.get('ratingCount', 0)} reviews)"
+        # Use ASCII star (*) instead of Unicode star
+        stars = "*" * int(float(rating.get('ratingValue', 0)))
+        return f"{rating.get('ratingValue', 'N/A')} {stars} ({rating.get('ratingCount', 0)} reviews)"
 
     def run(self):
         """Start the MCP server"""
