@@ -33,6 +33,19 @@ npx -y @smithery/cli install @arben-adm/brave-mcp-search --client claude
    uv pip install -r requirements.txt
    ```
 
+   **Note:**  
+   Your `requirements.txt` file must not contain section headers like `[dev]`.  
+   All packages (including dev tools) should be listed directly, for example:
+   ```
+   mcp
+   httpx
+   fastmcp
+   pytest
+   black
+   isort
+   ```
+   Using `[dev]` or other section headers will cause pip/uv to fail with a syntax error.
+
 3. Set up your Brave Search API key:
    ```
    export BRAVE_API_KEY=your_api_key_here

@@ -1,4 +1,4 @@
-from mcp.server.fastmcp import FastMCP
+from fastmcp import FastMCP  # correct import for fastmcp v2.x
 import httpx
 import time
 import asyncio
